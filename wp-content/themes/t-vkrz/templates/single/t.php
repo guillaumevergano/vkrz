@@ -2,7 +2,6 @@
 <?php
 $id_tournoi      = get_the_ID();
 $list_contenders = array();
-$list_votes      = array();
 $all_user_votes       = new WP_Query(array(
     'post_type'      => 'vote',
     'posts_per_page' => -1,
@@ -21,18 +20,6 @@ $all_user_votes       = new WP_Query(array(
     )
 ));
 $nb_user_votes = $all_user_votes->post_count;
-
-$all_votes       = new WP_Query(array(
-    'post_type'      => 'vote',
-    'posts_per_page' => -1,
-    'meta_query'     => array(
-        array(
-            'key'     => 'id_t_v',
-            'value'   => $id_tournoi,
-            'compare' => '=',
-        )
-    )
-));
 
 $contenders      = new WP_Query(array(
     'post_type'      => 'contender',
@@ -55,15 +42,6 @@ $i=0; while ($contenders->have_posts()) : $contenders->the_post();
     $id_c_2 = $list_contenders[$rand_c[1]];
 
 $i++; endwhile;
-
-$nums_pairs = "";
-$nb_battle  = 0;
-for ($i = 0; $i <= count($list_contenders); $i++) {
-    for ($j = $i + 1; $j < count($list_contenders); $j++) {
-        $nums_pairs .= $list_contenders[$i] . "," . $list_contenders[$j] . "<br>";
-        $nb_battle++;
-    }
-}
 wp_reset_query();
 ?>
 <?php if(isset($_GET['classement']) && $_GET['classement'] == "show") : ?>
@@ -74,7 +52,6 @@ wp_reset_query();
                 <div class="col">
                     <div class="titre-classement text-center">
                         <h2>Classement en cours</h2>
-                        <h3>Après <?php echo $all_votes->post_count; ?> votes</h3>
                     </div>
                 </div>
             </div>
@@ -263,11 +240,6 @@ wp_reset_query();
                                 <?= formatContenderHtml($id_tournoi, $id_c_1, 1) ?>
                             </div>
                             <div class="col-2">
-                                <div class="display_votes">
-                                    <h6>
-                                        <?php echo $all_votes->post_count; ?> votes
-                                    </h6>
-                                </div>
                                 <h4 class="text-center versus">
                                     VS
                                 </h4>
