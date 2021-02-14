@@ -1,16 +1,6 @@
 <?php
 $id_tournoi              = get_the_ID();
 $uuiduser                = $_COOKIE["vainkeurz_user_id"];
-$list_contenders_tournoi = array();
-$list_contenders         = array();
-$list_votes              = array();
-$deja_sup_to             = array();
-$next_duel               = array();
-$current_date            = date( 'd/m/Y H:i:s' );
-$elo_v                   = false;
-$elo_l                   = false;
-$nb_step                 = 5;
-
 
 $nb_user_votes  = all_user_votes_in_tournament($id_tournoi);
 
@@ -18,6 +8,7 @@ $id_classement_user = get_or_create_ranking_if_not_exists($id_tournoi);
 extract(get_next_duel($id_classement_user, $id_tournoi));
 
 wp_reset_query();
+
 if ( get_field( 'cover_t' ) ) {
     $illu     = wp_get_attachment_image_src( get_field( 'cover_t' ), 'full' );
     $illu_url = $illu[0];

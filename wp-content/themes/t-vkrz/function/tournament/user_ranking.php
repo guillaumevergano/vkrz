@@ -10,35 +10,48 @@ function get_next_duel( $id_classement_user, $id_tournament, $id_winner = 0, $id
 	$current_date            = date( 'd/m/Y H:i:s' );
 	$list_contenders_tournoi = [];
 	$deja_sup_to             = [];
+    $deja_inf_to             = [];
+    $sum_vote                = 0;
+    $timeline                = 0;
+    $key_gagnant             = 0;
+    $key_perdant             = 0;
+    $is_next_duel            = true;
+    $c_at_same_place         = [];
 
 	if ( ! $id_classement_user || empty( get_field( 'ranking_r', $id_classement_user ) ) ) {
 
 		// On boucle sur tous les participants du tournoi
-		$contenders = new WP_Query( array(
-			'post_type'      => 'contender',
-			'posts_per_page' => - 1,
-			'orderby'        => 'date',
-			'order'          => 'ASC',
-			'meta_query'     => array(
-				array(
-					'key'     => 'id_tournoi_c',
-					'value'   => $id_tournament,
-					'compare' => '=',
-				)
-			)
-		) );
+        $contenders = new WP_Query(
+            array(
+                'post_type'      => 'contender',
+                'posts_per_page' => -1,
+                'meta_key'       => 'ELO_c',
+                'orderby'        => 'meta_value_num',
+                'order'          => 'DESC',
+                'meta_query'     => array(
+                    array(
+                        'key'     => 'id_tournoi_c',
+                        'value'   => $id_tournament,
+                        'compare' => 'LIKE',
+                    )
+                )
+            )
+        );
 		$i          = 0;
 		while ( $contenders->have_posts() ) : $contenders->the_post();
 
 			// On créé le tableau avec tous les participants
 			// On initialise : place => 0 // Supérieur => vide
 			array_push( $list_contenders_tournoi, array(
-				"id"           => $i,
-				"id_global"    => get_the_ID(),
-				"name"         => get_the_title() . ' (' . get_the_ID() . ')',
-				"superieur_to" => array(),
-				"place"        => 0
-			) );
+                "id"                => $i,
+                "id_global"         => get_the_ID(),
+                "elo"               => get_field('ELO_c'),
+                "contender_name"    => get_the_title(),
+                "vote"              => 0,
+                "superieur_to"      => array(),
+                "inferior_to"       => array(),
+                "place"             => 0
+            ));
 
 			$i ++;
 		endwhile;
@@ -46,11 +59,19 @@ function get_next_duel( $id_classement_user, $id_tournament, $id_winner = 0, $id
 		// On update le champs Rankin du classement de l'utilisateur
 		$list_contenders_tournoi = array_filter( $list_contenders_tournoi );
 		update_field( 'ranking_r', $list_contenders_tournoi, $id_classement_user );
-	} else {
+	}
+	else {
+
 		$list_contenders_tournoi = get_field( 'ranking_r', $id_classement_user );
+
 	}
 
-// On boucle sur le ranking pour connaître la position dans le tableau du gagnant et du perdant
+	// Calcul du volume
+    $nb_contenders      = count($list_contenders_tournoi);
+    $nb_c_php           = $nb_contenders - 1;
+    $half               = $nb_contenders / 2;
+
+    // On boucle sur le ranking pour connaître la position dans le tableau du gagnant et du perdant
 	if ( $id_winner && $id_looser ) {
 		foreach ( $list_contenders_tournoi as $key => $contender ) {
 			if ( $contender['id_global'] == $id_winner ) {
@@ -61,24 +82,42 @@ function get_next_duel( $id_classement_user, $id_tournament, $id_winner = 0, $id
 			}
 		}
 
-// On boucle sur le ranking pour connaître tous les participants qui ont l'ID du gagnant dans le tableau de leur paramètre "superieur_to"
-// On stocke dans la variable "$deja_sup_to" la liste des participants(keys) qui ont battu le gagnant
+        if($id_winner){
+            $list_contenders_tournoi[$key_gagnant]['vote']++;
+        }
+        if($id_looser){
+            $list_contenders_tournoi[$key_perdant]['vote']++;
+        }
+
+        // On boucle sur le ranking pour connaître tous les participants qui ont l'ID du gagnant dans le tableau de leur paramètre "superieur_to"
+        // On stocke dans la variable "$deja_sup_to" la liste des participants(keys) qui ont battu le gagnant
 		foreach ( $list_contenders_tournoi as $key => $contender ) {
 			if ( in_array( $key_gagnant, $contender['superieur_to'] ) ) {
 				array_push( $deja_sup_to, $key );
 			}
+            if(in_array($key_perdant, $contender['inferior_to'])){
+                array_push($deja_inf_to, $key);
+            }
 		}
 
-// On ajoute le gagnant dans la liste de ceux qui l'ont déjà battu
+        // On ajoute le gagnant dans la liste de ceux qui l'ont déjà battu
 		if ( $id_winner ) {
 			array_push( $deja_sup_to, $key_gagnant );
 		}
+        // On ajoute le perdant dans la liste de ceux qui l'ont déjà battu
+        if( $id_looser ){
+            array_push($deja_inf_to, $key_perdant);
+        }
 
-// On récupère la liste des participants battu par le perdant du duel
+        // On récupère la liste des participants battu par le perdant du duel
 		$list_sup_to_l = $list_contenders_tournoi[ $key_perdant ]['superieur_to'];
+
+        // On récupère la liste des participants qui battent par le gagnant du duel
+        $list_inf_to_v = $list_contenders_tournoi[$key_gagnant]['inferior_to'];
 	}
-// On boucle sur la liste des participant battant le perdant
-// Cela inclus le gagnant du duel + tout ceux qui ont déjà battu ce gagnant
+
+    // On boucle sur la liste des participant battant le perdant
+    // Cela inclus le gagnant du duel + tout ceux qui ont déjà battu ce gagnant
 	foreach ( array_unique( $deja_sup_to ) as $k ) {
 
 		// On récupère la liste des participants que ce participant bat
@@ -93,45 +132,144 @@ function get_next_duel( $id_classement_user, $id_tournament, $id_winner = 0, $id
 		$total_sup_to                                  = array_merge( $list_sup_to_l, $to_up_sup_to );
 		$list_contenders_tournoi[ $k ]['superieur_to'] = array_unique( $total_sup_to );
 
-		// On compte le nombre de personne que le participant bat
-		$count_place = count( array_unique( $to_up_sup_to ) );
-		$new_place   = $count_place;
-		// On modifie la valeur de sa place avec cette nouvelle valeur
-		$list_contenders_tournoi[ $k ]['place'] = $new_place;
+        // On compte le nombre de personne que le participant bat
+        $count_sup_of     = count($list_contenders_tournoi[$k]['superieur_to']);
+        $count_inf_of     = count($list_contenders_tournoi[$k]['inferior_to']);
+
+        // On modifie la valeur de sa place avec cette nouvelle valeur
+        $list_contenders_tournoi[$k]['place']    = $count_sup_of - $count_inf_of;
 
 	}
 
-// On liste les uniquement les "place" pour obtenir un tableau simple avec les index des participants et leur place
-	$id_contender_next = array_column( $list_contenders_tournoi, 'place', 'name' );
+    // On boucle sur la liste des participant perdant contre le perdant
+    // Cela inclus le perdant du duel + tout ceux qui battent déjà ce perdant
+    foreach (array_unique($deja_inf_to) as $k){
 
-// On compte le nombre de participants
-	$nb_contenders = count( $list_contenders_tournoi );
+        // On récupère la liste des participants qui le battent
+        $to_up_inf_to = $list_contenders_tournoi[$k]['inferior_to'];
 
-// On lance des boucles jusqu'à obtenir le tableau "$next_duel" avec deux valeurs
-// On lance autant de boucle que de participant-1
-	for ( $s = 0; $s <= $nb_contenders - 1; $s ++ ) {
+        // On ajoute à cette liste, l'ID du gagnant du duel
+        array_push($to_up_inf_to, $key_gagnant);
 
-		// Si le tableau "$next_duel" est supérieur ou égal à deux valeurs alors on stop car nous pouvons faire un nouveau duel
-		// Sinon on le remet à zéro
-		if ( count( $next_duel ) >= 2 ) {
-			$step_number = $s;
-			break;
-		} else {
-			$next_duel = array();
-		}
+        // Si il s'agit du perdant du duel alors on fusionne les deux liste des participants qui battent par le gagnant et le perdant
+        // Puis modifie la liste "inferior_to" du perdant avec cette nouvelle liste
+        $total_inf_to = array_merge($list_inf_to_v, $to_up_inf_to);
+        $list_contenders_tournoi[$k]['inferior_to'] = array_unique($total_inf_to);
 
-		// On boucle sur tous les participant et on stocke leur ID global quand leur place est égal à l'incrémentation
-		foreach ( $list_contenders_tournoi as $d => $val ) {
+        // On compte le nombre de personne que le participant bat
+        $count_sup_of     = count($list_contenders_tournoi[$k]['superieur_to']);
+        $count_inf_of     = count($list_contenders_tournoi[$k]['inferior_to']);
 
-			if ( $val['place'] == $s ) {
-				array_push( $next_duel, $val['id_global'] );
-			}
+        // On modifie la valeur de sa place avec cette nouvelle valeur
+        $list_contenders_tournoi[$k]['place']    = $count_sup_of - $count_inf_of;
 
-		}
+    }
 
-	}
+    foreach($list_contenders_tournoi as $item){
 
-// On en déduits le nombre d'étapes
+        $sum_vote         = $sum_vote + $item['vote'];
+
+    }
+    $timeline             = $sum_vote / 2;
+
+    // On enregistre la mise à jour du champs "Ranking" du classement en cours
+    update_field("ranking_r", $list_contenders_tournoi, $id_classement_user);
+
+
+    // Génération du duel
+    if($timeline == 0){
+
+        $key_c_1 = $nb_c_php;
+        $key_c_2 = $half - 1;
+
+        array_push($next_duel, $list_contenders_tournoi[$key_c_1]['id_global']);
+        array_push($next_duel, $list_contenders_tournoi[$key_c_2]['id_global']);
+
+    }
+    elseif($timeline != 0 && $timeline < $half){
+
+        $key_c_1 = $nb_contenders - $timeline - 1;
+        $key_c_2 = $nb_contenders - $half - $timeline - 1;
+
+        array_push($next_duel, $list_contenders_tournoi[$key_c_1]['id_global']);
+        array_push($next_duel, $list_contenders_tournoi[$key_c_2]['id_global']);
+
+    }
+    elseif($timeline >= $half && $timeline <= ($nb_c_php - 1 + $half)){
+
+        $list_contenders_reverse = array_reverse($list_contenders_tournoi);
+
+        $key_c_1 = $half - ($nb_contenders - $timeline);
+        $key_c_2 = $half - ($nb_contenders - $timeline) + 1;
+
+        array_push($next_duel, $list_contenders_reverse[$key_c_1]['id_global']);
+        array_push($next_duel, $list_contenders_reverse[$key_c_2]['id_global']);
+
+    }
+    else{
+
+        // On inverse le tableau pour débuter avec les plus faibles
+        $list_contenders_reverse = array_reverse($list_contenders_tournoi);
+
+        // On lance des boucles jusqu'à obtenir le tableau "$next_duel" avec deux valeurs
+        // On lance autant de boucle que de participant-1
+        for($s = 0; $s <= $nb_contenders-1; $s++){
+
+            // Si le tableau "$next_duel" est supérieur ou égal à deux valeurs alors on stop car nous pouvons faire un nouveau duel
+            // Sinon on le remet à zéro
+            if(count($c_at_same_place) >= 2){
+                $step_number = $s;
+                break;
+            }
+            else{
+                $c_at_same_place = array();
+            }
+
+            // On boucle sur tous les participant et on stocke leur ID global quand leur place est égal à l'incrémentation
+            foreach ($list_contenders_reverse as $d => $val){
+
+                if($val['place'] == $s){
+                    array_push($c_at_same_place, $val['id_global']);
+                }
+
+            }
+
+        }
+
+        $clear_c_at_same_place = array_filter($c_at_same_place);
+
+        if(count($clear_c_at_same_place) >= 2){
+            $is_next_duel = true;
+            array_push($next_duel, $clear_c_at_same_place[0]);
+            array_push($next_duel, $clear_c_at_same_place[1]);
+        }
+        else{
+            $is_next_duel = false;
+            if(!get_field('done_r', $id_classement_user)){
+                update_field('done_r', 'done', $id_classement_user);
+                update_field('done_date_r', date('d/m/Y'), $id_classement_user);
+            }
+        }
+
+    }
+
+    $contender_1 = $next_duel[0];
+    $contender_2 = $next_duel[1];
+
+    var_dump('Half: '.$half.'<br>');
+    var_dump('NB contenders: '.$nb_contenders.'<br>');
+    var_dump('C1: '.$contender_1.' - '.$key_c_1.'<br>');
+    var_dump('C2: '.$contender_2.' - '.$key_c_2.'<br>');
+    var_dump('ID Classement: '.$id_classement_user.'<br>');
+    var_dump('NB votes: '.$sum_vote.'<br>');
+    var_dump('Timeline: '.$timeline.'<br>');
+    var_dump('Vote restant ? : '.$is_next_duel.'<br>');
+    print_r($list_contenders_tournoi);
+    print_r($clear_c_at_same_place);
+    print_r($next_duel);
+
+
+    // On en déduits le nombre d'étapes
 	$stade_steps = floor( $nb_contenders / $nb_step );
 	if ( isset( $step_number ) ) {
 
@@ -158,27 +296,6 @@ function get_next_duel( $id_classement_user, $id_tournament, $id_winner = 0, $id
 		$current_step = "Début du tournoi";
 	}
 
-// On enregistre la mise à jour du champs "Ranking" du classement en cours
-	update_field( "ranking_r", $list_contenders_tournoi, $id_classement_user );
-
-// On supprime les valeurs vide du tableau de duels
-	$clear_next_duel = array_filter( $next_duel );
-// On prend deux participant au hasard dans ce tableau
-	$rand_keys = array_rand( $clear_next_duel, 2 );
-
-// Si le tableau à deux valeur alors on peut faire un autre duel avec les IDs des deux participants
-// Sinon c'est la fin du classement et on stock dans le champs "done_r" la date de fin
-	if ( count( $clear_next_duel ) >= 2 ) {
-		$is_next_duel = true;
-		$contender_1  = $clear_next_duel[ $rand_keys[0] ];
-		$contender_2  = $clear_next_duel[ $rand_keys[1] ];
-	} else {
-		$is_next_duel = false;
-		if ( ! get_field( 'done_r', $id_classement_user ) ) {
-			update_field( 'done_r', 'done', $id_classement_user );
-			update_field( 'done_date_r', $current_date, $id_classement_user );
-		}
-	}
 
 	$all_votes_counts = all_votes_in_tournament( $id_tournament );
 	$nb_user_votes    = all_user_votes_in_tournament( $id_tournament );
